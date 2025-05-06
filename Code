@@ -1,245 +1,141 @@
+from builtins import ValueError
+
 import telebot
 from telebot import types
-import sqlite3
-import random
 
-# 🤖 Школьный бот 👻Aomine👻: помощник по расписанию, домашке, ГДЗ и собраниям! 🚀
-
+# Инициализация бота
 TOKEN = "8104233343:AAEf6EqGoymy2swH4Ra0bpYZFIHEIiAnKbM"
 bot = telebot.TeleBot(TOKEN)
 
-conn = sqlite3.connect("school_bot.db", check_same_thread=False)
-cursor = conn.cursor()
+# Данные пользователей
+users = {}
+homework = {
+    'Monday': {'Math': 'Exercise 1', 'English': 'Write a paragraph', 'Physics': 'Study chapter 2'},
+    'Tuesday': {'Biology': 'Prepare for quiz', 'Chemistry': 'Write a lab report', 'Geography': 'Read chapter 3'},
+    'Wednesday': {'Math': 'Solve problems 1-10', 'PE': 'Prepare presentation', 'Music': 'Practice piano'},
+    'Thursday': {'Physics': 'Read chapter 5', 'Chemistry': 'Complete worksheet', 'Biology': 'Study for test'},
+    'Friday': {'History': 'Write essay', 'Art': 'Complete drawing', 'Math': 'Review equations'}
+}
 
-# Таблицы
-cursor.execute('''CREATE TABLE IF NOT EXISTS users (
-    user_id INTEGER PRIMARY KEY,
-    username TEXT UNIQUE,
-    password TEXT
-)''')
-cursor.execute('''CREATE TABLE IF NOT EXISTS schedule (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    day TEXT,
-    time TEXT,
-    lesson TEXT
-)''')
-cursor.execute('''CREATE TABLE IF NOT EXISTS homework (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    lesson TEXT,
-    task TEXT,
-    answer TEXT
-)''')
-cursor.execute('''CREATE TABLE IF NOT EXISTS meetings (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    date TEXT,
-    time TEXT,
-    topic TEXT
-)''')
-cursor.execute('''CREATE TABLE IF NOT EXISTS reminders (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER,
-    text TEXT
-)''')
-conn.commit()
+# Расписание
+schedule = {
+    'Monday': ['Math', 'English', 'Physics', 'History'],
+    'Tuesday': ['Biology', 'Chemistry', 'Geography', 'Art'],
+    'Wednesday': ['Math', 'PE', 'Music', 'History'],
+    'Thursday': ['Physics', 'Chemistry', 'Biology', 'English'],
+    'Friday': ['History', 'Art', 'Math', 'PE']
+}
 
-# Предзагрузка
-predefined_schedule = [
-    ("Понедельник", "08:00", "Математика"),
-    ("Понедельник", "09:45", "Физика"),
-    ("Понедельник", "11:30", "История"),
-    ("Вторник", "08:00", "Литература"),
-    ("Вторник", "09:45", "Химия"),
-    ("Среда", "08:00", "Английский язык"),
-    ("Среда", "09:45", "Математика"),
-    ("Четверг", "08:00", "География"),
-    ("Четверг", "09:45", "Биология"),
-    ("Пятница", "08:00", "История"),
-    ("Пятница", "09:45", "Литература")
-]
-predefined_homework = [
-    ("Математика", "Решить задачи 5-10 на странице 45", "Ответ: 35, 45, 60, 75, 90"),
-    ("Физика", "Выучить законы Ньютона", "Ответ: Закон 1, Закон 2, Закон 3"),
-    ("История", "Прочитать параграф 12", "Ответ: Древний Рим"),
-    ("Литература", "Написать сочинение о произведении Чехова", "Ответ: Сочинение должно быть в 3 частях"),
-    ("Химия", "Подготовить отчет по лабораторной", "Ответ: Реакция осаждения"),
-    ("Английский язык", "Выучить слова на тему 'Family'", "Ответ: 15 слов и их перевод"),
-    ("География", "Заполнить карту мира", "Ответ: Все континенты и океаны"),
-    ("Биология", "Выучить строение клетки", "Ответ: Рисунок и описание")
-]
-cursor.executemany("INSERT OR IGNORE INTO schedule (day, time, lesson) VALUES (?, ?, ?)", predefined_schedule)
-cursor.executemany("INSERT OR IGNORE INTO homework (lesson, task, answer) VALUES (?, ?, ?)", predefined_homework)
-conn.commit()
 
 # Главное меню
 def main_menu():
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     buttons = [
         types.KeyboardButton("📅 Расписание"),
+        types.KeyboardButton("➕ Добавить занятие"),
         types.KeyboardButton("📖 Домашние задания"),
-        types.KeyboardButton("📚 ГДЗ"),
         types.KeyboardButton("📢 Родительские собрания"),
-        types.KeyboardButton("🎮 Игры"),
-        types.KeyboardButton("💬 Цитата дня"),
-        types.KeyboardButton("⏰ Напоминание"),
-        types.KeyboardButton("🤖 Помощник"),
+        types.KeyboardButton("👤 Мой профиль"),
         types.KeyboardButton("🔙 Назад")
     ]
     markup.add(*buttons)
     return markup
 
+
+# Регистрация пользователя
 user_data = {}
 
-# Регистрация
+
 @bot.message_handler(commands=['start'])
 def start(message):
-    bot.send_message(message.chat.id, "Привет! Введите ваш логин:")
-    bot.register_next_step_handler(message, process_login)
+    bot.send_message(message.chat.id, "Привет! Введите ваше имя:")
+    bot.register_next_step_handler(message, process_name)
 
-def process_login(message):
-    username = message.text
-    user_data[message.chat.id] = {"username": username}
-    bot.send_message(message.chat.id, "Введите пароль:")
-    bot.register_next_step_handler(message, process_password)
 
-def process_password(message):
-    password = message.text
-    chat_id = message.chat.id
-    username = user_data[chat_id]["username"]
-    cursor.execute("SELECT * FROM users WHERE username = ? AND password = ?", (username, password))
-    user = cursor.fetchone()
+def process_name(message):
+    name = message.text
+    user_data[message.chat.id] = {"name": name}
+    bot.send_message(message.chat.id, "Введите ваш класс:")
+    bot.register_next_step_handler(message, process_class)
 
-    if user:
-        bot.send_message(chat_id, "Вы успешно вошли!", reply_markup=main_menu())
-    else:
-        cursor.execute("INSERT OR IGNORE INTO users (user_id, username, password) VALUES (?, ?, ?)", (chat_id, username, password))
-        conn.commit()
-        bot.send_message(chat_id, "Регистрация завершена!", reply_markup=main_menu())
 
-# Расписание
-@bot.message_handler(func=lambda m: m.text == "📅 Расписание")
+def process_class(message):
+    user_class = message.text
+    user_data[message.chat.id]["class"] = user_class
+    bot.send_message(message.chat.id, "Вы успешно зарегистрированы!", reply_markup=main_menu())
+
+
+# Просмотр расписания
+@bot.message_handler(func=lambda message: message.text == "📅 Расписание")
 def view_schedule(message):
-    cursor.execute("SELECT DISTINCT day, time, lesson FROM schedule ORDER BY day, time")
-    records = cursor.fetchall()
-    response = "📅 Расписание:\n"
-    days = {}
-    for day, time, lesson in records:
-        days.setdefault(day, []).append(f"{time} - {lesson}")
-    for day, lessons in days.items():
-        response += f"\n{day}:\n" + "\n".join(lessons) + "\n"
+    response = "📅 Расписание на неделю:\n"
+    for day, subjects in schedule.items():
+        response += f"{day}: {', '.join(subjects)}\n"
+
     bot.send_message(message.chat.id, response, reply_markup=main_menu())
+
+
+# Добавление занятия
+@bot.message_handler(func=lambda message: message.text == "➕ Добавить занятие")
+def add_lesson(message):
+    bot.send_message(message.chat.id,
+                     "Введите день недели и предмет для добавления (например, Понедельник Математика):")
+    bot.register_next_step_handler(message, save_lesson)
+
+
+def save_lesson(message):
+    try:
+        day, subject = message.text.split(" ", 1)
+        if day.capitalize() in schedule:
+            schedule[day.capitalize()].append(subject)
+            bot.send_message(message.chat.id, f"Занятие '{subject}' добавлено в {day}.", reply_markup=main_menu())
+        else:
+            bot.send_message(message.chat.id, "Неправильный день недели. Попробуйте снова.")
+            bot.register_next_step_handler(message, save_lesson)
+    except ValueError:
+        bot.send_message(message.chat.id, "Неправильный формат ввода. Попробуйте снова.")
+        bot.register_next_step_handler(message, save_lesson)
+
 
 # Домашние задания
-@bot.message_handler(func=lambda m: m.text == "📖 Домашние задания")
+@bot.message_handler(func=lambda message: message.text == "📖 Домашние задания")
 def view_homework(message):
-    cursor.execute("SELECT DISTINCT lesson, task, answer FROM homework")
-    records = cursor.fetchall()
-    response = "📖 Домашние задания:\n"
-    for lesson, task, answer in records:
-        response += f"{lesson}: {task}\nОтвет: {answer}\n\n"
+    response = "📚 Домашние задания на неделю:\n"
+    for day, tasks in homework.items():
+        response += f"{day}:\n"
+        for subject, task in tasks.items():
+            response += f"{subject}: {task}\n"
     bot.send_message(message.chat.id, response, reply_markup=main_menu())
 
-# ГДЗ
-gdz_answers = {
-    "математика": "Задача 3, страница 45. Ответ: 345.",
-    "физика": "Задача 5, страница 12. Ответ: 12.5 Н.",
-    "химия": "Задача 2, страница 88. Ответ: 0.5 моль.",
-    "история": "Параграф 5, страница 20. Ответ: Древний Рим.",
-    "литература": "Чехов, рассказ 'Хамелеон'. Главная идея: изменчивость людской натуры."
-}
-
-@bot.message_handler(func=lambda m: m.text == "📚 ГДЗ")
-def gdz_request(message):
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    for subject in gdz_answers:
-        markup.add(subject.capitalize())
-    markup.add("🔙 Назад")
-    bot.send_message(message.chat.id, "Выберите предмет:", reply_markup=markup)
-
-@bot.message_handler(func=lambda m: m.text.lower() in gdz_answers)
-def gdz_answer(message):
-    bot.send_message(message.chat.id, gdz_answers[message.text.lower()], reply_markup=main_menu())
 
 # Родительские собрания
-@bot.message_handler(func=lambda m: m.text == "📢 Родительские собрания")
-def view_meetings(message):
-    cursor.execute("SELECT DISTINCT date, time, topic FROM meetings ORDER BY date")
-    meetings = cursor.fetchall()
-    if meetings:
-        response = "📢 Ближайшие собрания:\n" + "\n".join(f"{d} {t} – {topic}" for d, t, topic in meetings)
-    else:
-        response = "Нет запланированных собраний."
+@bot.message_handler(func=lambda message: message.text == "📢 Родительские собрания")
+def parent_meetings(message):
+    meetings = {
+        'Monday': 'Parent meeting for class 10A at 6 PM',
+        'Wednesday': 'Parent meeting for class 10B at 5 PM',
+        'Friday': 'Parent meeting for class 10C at 7 PM'
+    }
+
+    response = "📅 Родительские собрания:\n"
+    for day, info in meetings.items():
+        response += f"{day}: {info}\n"
     bot.send_message(message.chat.id, response, reply_markup=main_menu())
 
-# 🎮 Мини-игра
-@bot.message_handler(func=lambda m: m.text == "🎮 Игры")
-def start_game(message):
-    subjects = ["Математика", "Физика", "История", "Литература", "Химия", "Биология"]
-    chosen = random.choice(subjects).lower()
-    user_data[message.chat.id] = {"game_answer": chosen}
-    bot.send_message(message.chat.id, "🎲 Я загадал школьный предмет. Угадай какой!")
 
-@bot.message_handler(func=lambda m: "game_answer" in user_data.get(m.chat.id, {}))
-def check_guess(message):
-    if message.text.lower() == user_data[message.chat.id]["game_answer"]:
-        bot.send_message(message.chat.id, "✅ Правильно! Молодец!", reply_markup=main_menu())
-        user_data[message.chat.id].pop("game_answer")
+# Мой профиль
+@bot.message_handler(func=lambda message: message.text == "👤 Мой профиль")
+def my_profile(message):
+    chat_id = message.chat.id
+    if chat_id in user_data:
+        name = user_data[chat_id].get("name", "Не указан")
+        user_class = user_data[chat_id].get("class", "Не указан")
+        response = f"Ваш профиль:\nИмя: {name}\nКласс: {user_class}"
     else:
-        bot.send_message(message.chat.id, "❌ Неправильно. Попробуй снова.")
+        response = "Вы не зарегистрированы. Пожалуйста, зарегистрируйтесь."
 
-# 📝 Тест
-@bot.message_handler(commands=['test'])
-def test_question(message):
-    bot.send_message(message.chat.id, "❓ Кто написал 'Войну и мир'?\nА) Пушкин\nБ) Толстой\nВ) Чехов")
+    bot.send_message(message.chat.id, response, reply_markup=main_menu())
 
-@bot.message_handler(func=lambda m: m.text in ["А", "Б", "В"])
-def test_answer(message):
-    if message.text == "Б":
-        bot.send_message(message.chat.id, "✅ Верно! Толстой.", reply_markup=main_menu())
-    else:
-        bot.send_message(message.chat.id, "❌ Неправильно. Ответ: Толстой.")
 
-# ⏰ Напоминания
-@bot.message_handler(func=lambda m: m.text == "⏰ Напоминание")
-def add_reminder(message):
-    bot.send_message(message.chat.id, "Напиши текст напоминания:")
-    bot.register_next_step_handler(message, save_reminder)
-
-def save_reminder(message):
-    cursor.execute("INSERT INTO reminders (user_id, text) VALUES (?, ?)", (message.chat.id, message.text))
-    conn.commit()
-    bot.send_message(message.chat.id, "🔔 Напоминание сохранено!", reply_markup=main_menu())
-
-# 💬 Цитаты
-quotes = [
-    "Ученье — свет, а неученье — тьма.",
-    "Знание — сила.",
-    "Книга — лучший друг человека.",
-    "Ошибки — путь к успеху."
-]
-
-@bot.message_handler(func=lambda m: m.text == "💬 Цитата дня")
-def quote_of_the_day(message):
-    bot.send_message(message.chat.id, random.choice(quotes), reply_markup=main_menu())
-
-# 🤖 ИИ-помощник (заглушка)
-@bot.message_handler(func=lambda m: m.text == "🤖 Помощник")
-def ai_assistant(message):
-    bot.send_message(message.chat.id, "Я здесь, чтобы помочь! Напиши свой вопрос:")
-    bot.register_next_step_handler(message, simple_ai)
-
-def simple_ai(message):
-    question = message.text.lower()
-    if "домашка" in question:
-        bot.send_message(message.chat.id, "Посмотри в разделе 📖 Домашние задания!")
-    elif "расписание" in question:
-        bot.send_message(message.chat.id, "Открой 📅 Расписание.")
-    else:
-        bot.send_message(message.chat.id, "Извини, я пока не всё понимаю. Я учусь 😊")
-
-# Назад
-@bot.message_handler(func=lambda m: m.text == "🔙 Назад")
-def back(message):
-    bot.send_message(message.chat.id, "Что бы ты хотел сделать?", reply_markup=main_menu())
-
-# Запуск
+# Запуск бота
 bot.polling(none_stop=True)
